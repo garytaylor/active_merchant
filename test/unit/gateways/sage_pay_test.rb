@@ -7,6 +7,7 @@ class SagePayTest < Test::Unit::TestCase
     )
 
     @credit_card = credit_card('4242424242424242', :type => 'visa')
+    @token = "D2V5G7T7R1S6D8F4Y1L2U9K9KK98HG5J6I3U7V"
     @options = { 
       :billing_address => { 
         :name => 'Tekin Suleyman',
@@ -28,10 +29,28 @@ class SagePayTest < Test::Unit::TestCase
 
   def test_successful_purchase
     @gateway.expects(:ssl_post).returns(successful_purchase_response)
-    
     assert response = @gateway.purchase(@amount, @credit_card, @options)
     assert_instance_of Response, response
     assert_equal "1;B8AE1CF6-9DEF-C876-1BB4-9B382E6CE520;4193753;OHMETD7DFK;purchase", response.authorization
+    assert_success response
+  end
+
+
+  def test_successful_purchase_with_card
+    @gateway.expects(:ssl_post).returns(successful_purchase_response)
+    @gateway.expects(:add_credit_card).with(kind_of(Hash), @credit_card)
+
+    assert response = @gateway.purchase(@amount, @credit_card, @options)
+    assert_instance_of Response, response
+    assert_success response
+  end
+
+  def test_successful_purchase_with_token
+    @gateway.expects(:ssl_post).returns(successful_purchase_response)
+    @gateway.expects(:add_token).with(kind_of(Hash), @token, @options)
+
+    assert response = @gateway.purchase(@amount, @token, @options)
+    assert_instance_of Response, response
     assert_success response
   end
 
@@ -42,13 +61,26 @@ class SagePayTest < Test::Unit::TestCase
     assert_instance_of Response, response
     assert_failure response
   end
-  
+
+  def test_successful_store
+    @gateway.expects(:ssl_post).returns(successful_store_response)
+
+    assert response = @gateway.store(@credit_card)
+    assert_instance_of Response, response
+    assert_success response
+    assert_equal "D2V5G7T7R1S6D8F4Y1L2U9K9KK98HG5J6I3U7V", response.params["Token"]
+  end
+
   def test_purchase_url
     assert_equal 'https://test.sagepay.com/gateway/service/vspdirect-register.vsp', @gateway.send(:url_for, :purchase)
   end
   
   def test_capture_url
     assert_equal 'https://test.sagepay.com/gateway/service/release.vsp', @gateway.send(:url_for, :capture)
+  end
+
+  def test_store_url
+    assert_equal 'https://test.sagepay.com/gateway/service/directtoken.vsp', @gateway.send(:url_for, :store)
   end
   
   def test_electron_cards
@@ -121,7 +153,7 @@ class SagePayTest < Test::Unit::TestCase
 
     @gateway.send(:add_amount, {}, @amount, @options)
   end
-   
+
   private
 
   def successful_purchase_response
@@ -139,7 +171,17 @@ CV2Result=NOTMATCHED
 3DSecureStatus=NOTCHECKED
     RESP
   end
-  
+
+  def successful_store_response
+    <<-RESP
+VPSProtocol=2.23
+TxType=TOKEN
+Status=OK
+StatusDetail=0000 : The Authorisation was Successful.
+Token=D2V5G7T7R1S6D8F4Y1L2U9K9KK98HG5J6I3U7V
+    RESP
+  end
+
   def unsuccessful_purchase_response
     <<-RESP
 VPSProtocol=2.23

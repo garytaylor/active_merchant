@@ -16,7 +16,8 @@ module ActiveMerchant #:nodoc:
         :authorization => 'DEFERRED',
         :capture => 'RELEASE',
         :void => 'VOID',
-        :abort => 'ABORT'
+        :abort => 'ABORT',
+        :store => 'TOKEN'
       }
       
       CREDIT_CARDS = {
@@ -58,14 +59,14 @@ module ActiveMerchant #:nodoc:
         @options[:test] || super
       end
       
-      def purchase(money, credit_card, options = {})
+      def purchase(money, credit_card_or_token, options = {})
         requires!(options, :order_id)
         
         post = {}
         
         add_amount(post, money, options)
         add_invoice(post, options)
-        add_credit_card(post, credit_card)
+        add_credit_card_or_token(post, credit_card_or_token, options)
         add_address(post, options)
         add_customer_data(post, options)
 
@@ -118,11 +119,19 @@ module ActiveMerchant #:nodoc:
         commit(:credit, post)
       end
 
+      def store(credit_card, options = {})
+        post = {}
+        add_credit_card(post, credit_card)
+        add_currency(post, options)
+
+        commit(:store, post)
+      end
+
       def credit(money, identification, options = {})
         deprecated CREDIT_DEPRECATION_MESSAGE
         refund(money, identification, options)
       end
-      
+
       private
       def add_reference(post, identification)
         order_id, transaction_id, authorization, security_key = identification.split(';') 
@@ -151,6 +160,10 @@ module ActiveMerchant #:nodoc:
       # doesn't actually use the currency -- dodgy!
       def add_release_amount(post, money, options)
         add_pair(post, :ReleaseAmount, amount(money), :required => true)
+      end
+
+      def add_currency(post, options)
+        add_pair(post, :Currency, options[:currency], :required => true)
       end
 
       def add_customer_data(post, options)
@@ -190,6 +203,14 @@ module ActiveMerchant #:nodoc:
         add_pair(post, :Description, options[:description] || options[:order_id])
       end
 
+      def add_credit_card_or_token(post, credit_card_or_token, options)
+        if credit_card_or_token.is_a? String
+          add_token(post, credit_card_or_token, options)
+        else
+          add_credit_card(post, credit_card_or_token)
+        end
+      end
+
       def add_credit_card(post, credit_card)
         add_pair(post, :CardHolder, credit_card.name, :required => true)
         add_pair(post, :CardNumber, credit_card.number, :required => true)
@@ -203,6 +224,12 @@ module ActiveMerchant #:nodoc:
         add_pair(post, :CardType, map_card_type(credit_card))
         
         add_pair(post, :CV2, credit_card.verification_value)
+      end
+
+      def add_token(post, token, options)
+        add_pair(post, :Token, token)
+        add_pair(post, :StoreToken, options[:store_token])
+        add_pair(post, :CV2, options[:cv2])
       end
       
       def sanitize_order_id(order_id)
@@ -264,7 +291,11 @@ module ActiveMerchant #:nodoc:
       end
       
       def build_url(action)
-        endpoint = [ :purchase, :authorization ].include?(action) ? "vspdirect-register" : TRANSACTIONS[action].downcase
+        endpoint = case action
+          when :purchase, :authorization then "vspdirect-register"
+          when :store then 'directtoken'
+          else TRANSACTIONS[action].downcase
+        end
         "#{test? ? TEST_URL : LIVE_URL}/#{endpoint}.vsp"
       end
       
