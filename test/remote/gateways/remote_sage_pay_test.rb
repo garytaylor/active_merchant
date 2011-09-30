@@ -110,6 +110,8 @@ class RemoteSagePayTest < Test::Unit::TestCase
       :email => 'tekin@tekin.co.uk',
       :phone => '0161 123 4567'
     }
+
+    @token_options = {:currency => 'GBP'}.merge(@options)
  
     @amount = 100
   end
@@ -198,6 +200,13 @@ class RemoteSagePayTest < Test::Unit::TestCase
     assert_success response
     assert response.test?
     assert !response.authorization.blank?
+  end
+
+  def test_successful_card_storage
+    assert response = @gateway.store(@visa, @token_options)
+    assert_success response
+    assert response.test?
+    assert !response.params["Token"].blank?
   end
   
   def test_invalid_login
