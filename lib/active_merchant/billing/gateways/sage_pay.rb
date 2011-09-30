@@ -9,6 +9,8 @@ module ActiveMerchant #:nodoc:
       SIMULATOR_URL = 'https://test.sagepay.com/Simulator'
 
       APPROVED = 'OK'
+      AUTHENTICATED = 'AUTHENTICATED'
+      REGISTERED = 'REGISTERED'
 
       TRANSACTIONS = {
         :purchase => 'PAYMENT',
@@ -18,7 +20,8 @@ module ActiveMerchant #:nodoc:
         :void => 'VOID',
         :abort => 'ABORT',
         :store => 'TOKEN',
-        :unstore => 'REMOVETOKEN'
+        :unstore => 'REMOVETOKEN',
+        :authenticate => 'AUTHENTICATE'
       }
 
       CREDIT_CARDS = {
@@ -65,11 +68,7 @@ module ActiveMerchant #:nodoc:
 
         post = {}
 
-        add_amount(post, money, options)
-        add_invoice(post, options)
-        add_credit_card_or_token(post, credit_card_or_token, options)
-        add_address(post, options)
-        add_customer_data(post, options)
+        add_default_purchase_details(post, money, credit_card_or_token, options)
 
         commit(:purchase, post)
       end
@@ -79,13 +78,20 @@ module ActiveMerchant #:nodoc:
 
         post = {}
 
-        add_amount(post, money, options)
-        add_invoice(post, options)
-        add_credit_card_or_token(post, credit_card_token)
-        add_address(post, options)
-        add_customer_data(post, options)
+        add_default_purchase_details(post, money, credit_card_or_token, options)
 
         commit(:authorization, post)
+      end
+
+      def authenticate(money, credit_card_or_token, options)
+        requires!(options, :order_id)
+
+        post = {}
+
+        add_default_purchase_details(post, money, credit_card_or_token, options)
+
+        commit(:authenticate, post)
+
       end
 
       # You can only capture a transaction once, even if you didn't capture the full amount the first time.
@@ -140,6 +146,15 @@ module ActiveMerchant #:nodoc:
       end
 
       private
+
+      def add_default_purchase_details(post, money, credit_card_or_token, options)
+        add_amount(post, money, options)
+        add_invoice(post, options)
+        add_credit_card_or_token(post, credit_card_or_token, options)
+        add_address(post, options)
+        add_customer_data(post, options)
+      end
+
       def add_reference(post, identification)
         order_id, transaction_id, authorization, security_key = identification.split(';') 
 
@@ -273,7 +288,7 @@ module ActiveMerchant #:nodoc:
       def commit(action, parameters)
         response = parse( ssl_post(url_for(action), post_data(action, parameters)) )
 
-        Response.new(response["Status"] == APPROVED, message_from(response), response,
+        Response.new([APPROVED, AUTHENTICATED, REGISTERED].include?(response["Status"]), message_from(response), response,
           :test => test?,
           :authorization => authorization_from(response, parameters, action),
           :avs_result => { 

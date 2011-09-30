@@ -58,6 +58,13 @@ class SagePayTest < Test::Unit::TestCase
     assert_failure response
   end
 
+  def test_successful_authorize
+    @gateway.expects(:ssl_post).returns(successful_purchase_response)
+    assert response = @gateway.authorize(@amount, @credit_card, @options)
+    assert_instance_of Response, response
+    assert_success response
+  end
+
   def test_successful_store
     @gateway.expects(:ssl_post).returns(successful_store_response)
 
@@ -71,6 +78,13 @@ class SagePayTest < Test::Unit::TestCase
     @gateway.expects(:ssl_post).returns(successful_unstore_response)
 
     assert response = @gateway.unstore(@token)
+    assert_instance_of Response, response
+    assert_success response
+  end
+
+  def test_successful_authenticate
+    @gateway.expects(:ssl_post).returns(successful_authenticate_response)
+    assert response = @gateway.authenticate(@amount, @credit_card, @options)
     assert_instance_of Response, response
     assert_success response
   end
@@ -168,6 +182,22 @@ class SagePayTest < Test::Unit::TestCase
     <<-RESP
 VPSProtocol=2.23
 Status=OK
+StatusDetail=0000 : The Authorisation was Successful.
+VPSTxId=B8AE1CF6-9DEF-C876-1BB4-9B382E6CE520
+SecurityKey=OHMETD7DFK
+TxAuthNo=4193753
+AVSCV2=NO DATA MATCHES
+AddressResult=NOTMATCHED
+PostCodeResult=MATCHED
+CV2Result=NOTMATCHED
+3DSecureStatus=NOTCHECKED
+    RESP
+  end
+
+  def successful_authenticate_response
+    <<-RESP
+VPSProtocol=2.23
+Status=AUTHENTICATED
 StatusDetail=0000 : The Authorisation was Successful.
 VPSTxId=B8AE1CF6-9DEF-C876-1BB4-9B382E6CE520
 SecurityKey=OHMETD7DFK
