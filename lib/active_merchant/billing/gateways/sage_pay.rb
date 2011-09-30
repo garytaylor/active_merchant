@@ -3,13 +3,13 @@ module ActiveMerchant #:nodoc:
     class SagePayGateway < Gateway  
       cattr_accessor :simulate
       self.simulate = false
-      
+
       TEST_URL = 'https://test.sagepay.com/gateway/service'
       LIVE_URL = 'https://live.sagepay.com/gateway/service'
       SIMULATOR_URL = 'https://test.sagepay.com/Simulator'
-      
+
       APPROVED = 'OK'
-    
+
       TRANSACTIONS = {
         :purchase => 'PAYMENT',
         :credit => 'REFUND',
@@ -17,9 +17,10 @@ module ActiveMerchant #:nodoc:
         :capture => 'RELEASE',
         :void => 'VOID',
         :abort => 'ABORT',
-        :store => 'TOKEN'
+        :store => 'TOKEN',
+        :unstore => 'REMOVETOKEN'
       }
-      
+
       CREDIT_CARDS = {
         :visa => "VISA",
         :master => "MC",
@@ -34,18 +35,18 @@ module ActiveMerchant #:nodoc:
       }
 
       ELECTRON = /^(424519|42496[23]|450875|48440[6-8]|4844[1-5][1-5]|4917[3-5][0-9]|491880)\d{10}(\d{3})?$/
-      
+
       AVS_CVV_CODE = {
         "NOTPROVIDED" => nil, 
         "NOTCHECKED" => 'X',
         "MATCHED" => 'Y',
         "NOTMATCHED" => 'N'
       }
-    
+
       self.supported_cardtypes = [:visa, :master, :american_express, :discover, :jcb, :switch, :solo, :maestro, :diners_club]
       self.supported_countries = ['GB']
       self.default_currency = 'GBP'
-      
+
       self.homepage_url = 'http://www.sagepay.com'
       self.display_name = 'SagePay'
 
@@ -54,16 +55,16 @@ module ActiveMerchant #:nodoc:
         @options = options
         super
       end
-      
+
       def test?
         @options[:test] || super
       end
-      
+
       def purchase(money, credit_card_or_token, options = {})
         requires!(options, :order_id)
-        
+
         post = {}
-        
+
         add_amount(post, money, options)
         add_invoice(post, options)
         add_credit_card_or_token(post, credit_card_or_token, options)
@@ -72,12 +73,12 @@ module ActiveMerchant #:nodoc:
 
         commit(:purchase, post)
       end
-      
+
       def authorize(money, credit_card, options = {})
         requires!(options, :order_id)
-        
+
         post = {}
-        
+
         add_amount(post, money, options)
         add_invoice(post, options)
         add_credit_card(post, credit_card)
@@ -86,20 +87,20 @@ module ActiveMerchant #:nodoc:
 
         commit(:authorization, post)
       end
-      
+
       # You can only capture a transaction once, even if you didn't capture the full amount the first time.
       def capture(money, identification, options = {})
         post = {}
-        
+
         add_reference(post, identification)
         add_release_amount(post, money, options)
-        
+
         commit(:capture, post)
       end
-      
+
       def void(identification, options = {})
         post = {}
-        
+
         add_reference(post, identification)
         action = abort_or_void_from(identification)
 
@@ -109,13 +110,13 @@ module ActiveMerchant #:nodoc:
       # Refunding requires a new order_id to passed in, as well as a description
       def refund(money, identification, options = {})
         requires!(options, :order_id, :description)
-        
+
         post = {}
-        
+
         add_credit_reference(post, identification)
         add_amount(post, money, options)
         add_invoice(post, options)
-        
+
         commit(:credit, post)
       end
 
@@ -127,6 +128,12 @@ module ActiveMerchant #:nodoc:
         commit(:store, post)
       end
 
+      def unstore(token, options = {})
+        post = {}
+        add_token(post, token)
+        commit(:unstore, post)
+      end
+
       def credit(money, identification, options = {})
         deprecated CREDIT_DEPRECATION_MESSAGE
         refund(money, identification, options)
@@ -135,22 +142,22 @@ module ActiveMerchant #:nodoc:
       private
       def add_reference(post, identification)
         order_id, transaction_id, authorization, security_key = identification.split(';') 
-        
+
         add_pair(post, :VendorTxCode, order_id)
         add_pair(post, :VPSTxId, transaction_id)
         add_pair(post, :TxAuthNo, authorization)
         add_pair(post, :SecurityKey, security_key)
       end
-      
+
       def add_credit_reference(post, identification)
         order_id, transaction_id, authorization, security_key = identification.split(';') 
-        
+
         add_pair(post, :RelatedVendorTxCode, order_id)
         add_pair(post, :RelatedVPSTxId, transaction_id)
         add_pair(post, :RelatedTxAuthNo, authorization)
         add_pair(post, :RelatedSecurityKey, security_key)
       end
-      
+
       def add_amount(post, money, options)
         currency = options[:currency] || currency(money)
         add_pair(post, :Amount, localized_amount(money, currency), :required => true)
@@ -184,7 +191,7 @@ module ActiveMerchant #:nodoc:
           add_pair(post, :BillingCountry, billing_address[:country])
           add_pair(post, :BillingPostCode, billing_address[:zip])
         end
-        
+
         if shipping_address = options[:shipping_address] || billing_address
           first_name, last_name = parse_first_and_last_name(shipping_address[:name])
           add_pair(post, :DeliverySurname, last_name)
@@ -205,7 +212,7 @@ module ActiveMerchant #:nodoc:
 
       def add_credit_card_or_token(post, credit_card_or_token, options)
         if credit_card_or_token.is_a? String
-          add_token(post, credit_card_or_token, options)
+          add_token_details(post, credit_card_or_token, options)
         else
           add_credit_card(post, credit_card_or_token)
         end
@@ -214,33 +221,37 @@ module ActiveMerchant #:nodoc:
       def add_credit_card(post, credit_card)
         add_pair(post, :CardHolder, credit_card.name, :required => true)
         add_pair(post, :CardNumber, credit_card.number, :required => true)
-         
+
         add_pair(post, :ExpiryDate, format_date(credit_card.month, credit_card.year), :required => true)
-         
+
         if requires_start_date_or_issue_number?(credit_card)
           add_pair(post, :StartDate, format_date(credit_card.start_month, credit_card.start_year))
           add_pair(post, :IssueNumber, credit_card.issue_number)
         end
         add_pair(post, :CardType, map_card_type(credit_card))
-        
+
         add_pair(post, :CV2, credit_card.verification_value)
       end
 
-      def add_token(post, token, options)
-        add_pair(post, :Token, token)
+      def add_token_details(post, token, options)
+        add_token(post, token)
         add_pair(post, :StoreToken, options[:store_token])
         add_pair(post, :CV2, options[:cv2])
       end
-      
+
+      def add_token(post, token)
+        add_pair(post, :Token, token)
+      end
+
       def sanitize_order_id(order_id)
         order_id.to_s.gsub(/[^-a-zA-Z0-9._]/, '')
       end
-      
+
       def map_card_type(credit_card)
         raise ArgumentError, "The credit card type must be provided" if card_brand(credit_card).blank?
-        
+
         card_type = card_brand(credit_card).to_sym
-        
+
         # Check if it is an electron card
         if card_type == :visa && credit_card.number =~ ELECTRON 
           CREDIT_CARDS[:electron]
@@ -248,20 +259,20 @@ module ActiveMerchant #:nodoc:
           CREDIT_CARDS[card_type]
         end
       end
-      
+
       # MMYY format
       def format_date(month, year)
         return nil if year.blank? || month.blank?
-        
+
         year  = sprintf("%.4i", year)
         month = sprintf("%.2i", month)
 
         "#{month}#{year[-2..-1]}"
       end
-      
+
       def commit(action, parameters)
         response = parse( ssl_post(url_for(action), post_data(action, parameters)) )
-          
+
         Response.new(response["Status"] == APPROVED, message_from(response), response,
           :test => test?,
           :authorization => authorization_from(response, parameters, action),
@@ -272,7 +283,7 @@ module ActiveMerchant #:nodoc:
           :cvv_result => AVS_CVV_CODE[ response["CV2Result"] ]
         )
       end
-      
+
       def authorization_from(response, params, action)
          [ params[:VendorTxCode],
            response["VPSTxId"],
@@ -289,7 +300,7 @@ module ActiveMerchant #:nodoc:
       def url_for(action)
         simulate ? build_simulator_url(action) : build_url(action)
       end
-      
+
       def build_url(action)
         endpoint = case action
           when :purchase, :authorization then "vspdirect-register"
@@ -298,7 +309,7 @@ module ActiveMerchant #:nodoc:
         end
         "#{test? ? TEST_URL : LIVE_URL}/#{endpoint}.vsp"
       end
-      
+
       def build_simulator_url(action)
         endpoint = [ :purchase, :authorization ].include?(action) ? "VSPDirectGateway.asp" : "VSPServerGateway.asp?Service=Vendor#{TRANSACTIONS[action].capitalize}Tx"
         "#{SIMULATOR_URL}/#{endpoint}"
@@ -314,10 +325,10 @@ module ActiveMerchant #:nodoc:
           :TxType => TRANSACTIONS[action],
           :VPSProtocol => "2.23"
         )
-        
+
         parameters.collect { |key, value| "#{key}=#{CGI.escape(value.to_s)}" }.join("&")
       end
-      
+
       # SagePay returns data in the following format
       # Key1=value1
       # Key2=value2
@@ -335,12 +346,12 @@ module ActiveMerchant #:nodoc:
 
       def parse_first_and_last_name(value)
         name = value.to_s.split(' ')
-        
+
         last_name = name.pop || ''
         first_name = name.join(' ')
         [ first_name[0,20], last_name[0,20] ]
       end
-      
+
       def localized_amount(money, currency)
         amount = amount(money)
         CURRENCIES_WITHOUT_FRACTIONS.include?(currency.to_s) ? amount.split('.').first : amount
