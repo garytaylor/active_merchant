@@ -74,14 +74,14 @@ module ActiveMerchant #:nodoc:
         commit(:purchase, post)
       end
 
-      def authorize(money, credit_card, options = {})
+      def authorize(money, credit_card_or_token, options = {})
         requires!(options, :order_id)
 
         post = {}
 
         add_amount(post, money, options)
         add_invoice(post, options)
-        add_credit_card(post, credit_card)
+        add_credit_card_or_token(post, credit_card_token)
         add_address(post, options)
         add_customer_data(post, options)
 
