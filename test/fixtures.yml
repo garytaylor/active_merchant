@@ -391,6 +391,10 @@ sage:
   login: login
   password: password
 
+sage_pay:
+  login: VENDOR_NAME
+  test: true
+
 sallie_mae:
   login: TEST0
 
