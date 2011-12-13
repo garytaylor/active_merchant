@@ -252,6 +252,7 @@ module ActiveMerchant #:nodoc:
         add_token(post, token)
         add_pair(post, :StoreToken, options[:store_token])
         add_pair(post, :CV2, options[:cv2])
+        add_pair(post, :ApplyAVSCV2, options[:apply_avs_cv2]) if options.key?(:apply_avs_cv2)
       end
 
       def add_token(post, token)
